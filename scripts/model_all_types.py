@@ -114,10 +114,21 @@ def plot_all_regression_types(X, y, x_name, y_name, output_filename):
     axes[5].plot(X_sorted, y_pred_log, 'orange', linewidth=1.5, label=f'Логарифмическая (R²={r2_log:.4f})')
     axes[5].plot(X_sorted, y_pred_poly2, 'purple', linewidth=1.5, label=f'Полином 2 (R²={r2_poly2:.4f})')
     axes[5].plot(X_sorted, y_pred_poly3, 'red', linewidth=1.5, label=f'Полином 3 (R²={r2_poly3:.4f})')
-    axes[5].set_title(f'Сравнение всех моделей\nЛучшая: {max([(r2_lin,"Линейная"),(r2_exp,"Экспоненциальная"),(r2_log,"Логарифмическая"),(r2_poly2,"Полином 2"),(r2_poly3,"Полином 3)"], key=lambda x: x[0])[1]}')
+    
+    # Определяем лучшую модель
+    models_r2 = [
+        (r2_lin, "Линейная"),
+        (r2_exp, "Экспоненциальная"),
+        (r2_log, "Логарифмическая"),
+        (r2_poly2, "Полином 2"),
+        (r2_poly3, "Полином 3")
+    ]
+    best_model_name = max(models_r2, key=lambda x: x[0])[1]
+    
+    axes[5].set_title(f'Сравнение всех моделей\nЛучшая: {best_model_name}', fontsize=10)
     axes[5].set_xlabel(x_name)
     axes[5].set_ylabel(y_name)
-    axes[5].legend(fontsize=8)
+    axes[5].legend(fontsize=7)
     axes[5].grid(True, alpha=0.3)
     
     plt.suptitle(f'{y_name} от {x_name}', fontsize=14, fontweight='bold')
@@ -134,27 +145,13 @@ def plot_all_regression_types(X, y, x_name, y_name, output_filename):
     print(f"    Логарифмическая: R² = {r2_log:.4f}")
     print(f"    Полином 2-й степени: R² = {r2_poly2:.4f}")
     print(f"    Полином 3-й степени: R² = {r2_poly3:.4f}")
+    print(f"    ЛУЧШАЯ МОДЕЛЬ: {best_model_name} (R² = {max([r2_lin, r2_exp, r2_log, r2_poly2, r2_poly3]):.4f})")
     
-    # Лучшая модель
-    best_r2 = max([r2_lin, r2_exp, r2_log, r2_poly2, r2_poly3])
-    if best_r2 == r2_lin:
-        best_name = "Линейная"
-    elif best_r2 == r2_exp:
-        best_name = "Экспоненциальная"
-    elif best_r2 == r2_log:
-        best_name = "Логарифмическая"
-    elif best_r2 == r2_poly2:
-        best_name = "Полиномиальная 2-й степени"
-    else:
-        best_name = "Полиномиальная 3-й степени"
-    
-    print(f"    ЛУЧШАЯ МОДЕЛЬ: {best_name} (R² = {best_r2:.4f})")
-    
-    return {'best_model': best_name, 'best_r2': best_r2}
+    return best_model_name
 
 def main():
     print("=" * 80)
-    print("ПОСТРОЕНИЕ ВСЕХ ТИПОВ РЕГРЕССИИ ДЛЯ КОРРЕЛИРУЮЩИХ ПАР")
+    print("ПОСТРОЕНИЕ ВСЕХ ТИПОВ РЕГРЕССИИ ДЛЯ ВСЕХ ПАР")
     print("=" * 80)
     
     df = load_and_prepare_data()
@@ -169,33 +166,29 @@ def main():
         'Жилплощадь': 'Жилплощадь на человека (кв.м)'
     }
     
-    # Пары для анализа (все возможные комбинации факторов и результатов)
-    # Факторы: ВРП, Инвестиции, Доходы
-    # Результаты: Продолжительность_жизни, Уровень_бедности, Жилплощадь
-    
+    # Факторы и зависимые переменные
     factors = ['ВРП', 'Инвестиции', 'Доходы']
     targets = ['Продолжительность_жизни', 'Уровень_бедности', 'Жилплощадь']
     
-    print("\nПары для анализа:")
+    print("\nПостроение графиков для всех комбинаций:")
     print("-" * 50)
     
     results_summary = []
     
     for target in targets:
         for factor in factors:
-            print(f"  {target} ← {factor}")
+            print(f"\n  {target} ← {factor}")
             X = df[factor].values
             y = df[target].values
             x_name = names[factor]
             y_name = names[target]
             filename = f'results/figures/regression_{target}_from_{factor}.png'
             
-            res = plot_all_regression_types(X, y, x_name, y_name, filename)
+            best_model = plot_all_regression_types(X, y, x_name, y_name, filename)
             results_summary.append({
                 'Зависимая': target,
                 'Фактор': factor,
-                'Лучшая модель': res['best_model'],
-                'R²': res['best_r2']
+                'Лучшая модель': best_model
             })
     
     # Сводная таблица результатов
