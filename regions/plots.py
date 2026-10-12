@@ -211,8 +211,91 @@ def plot_correlations(panel: pd.DataFrame) -> Path:
     return _save(fig, "correlations.png")
 
 
-def plot_all(panel, russia, coefs, assignments, cluster_year) -> list[Path]:
+MAIN = ["gdp_real", "invest_real", "income_real", "poverty", "life_exp", "housing"]
+
+
+def plot_distributions(panel: pd.DataFrame) -> Path:
+    """Гистограммы основных показателей по всем наблюдениям."""
+    fig, axes = plt.subplots(2, 3, figsize=(13, 6.4))
+    for ax, key in zip(axes.flat, MAIN):
+        values = panel[key].dropna()
+        money = key.endswith("_real")
+        if money:
+            values = values / 1000
+            bins = np.geomspace(values.min(), values.max(), 36)
+            ax.set_xscale("log")
+            ticks = [t for t in (5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000) if values.min() <= t <= values.max()]
+            ax.set_xticks(ticks, labels=[str(t) for t in ticks])
+            ax.minorticks_off()
+        else:
+            bins = 36
+        ax.hist(values, bins=bins, color=SERIES[0], edgecolor=SURFACE, linewidth=0.6)
+        ax.axvline(values.median(), color=SERIES[1], linewidth=2)
+        ax.set_title(SHORT[key] if key not in SHORT_TARGETS else SHORT_TARGETS[key])
+        ax.set_xlabel(("тыс. " + UNITS[key] + ", лог. шкала") if money else UNITS[key])
+        ax.grid(axis="x", visible=False)
+    axes[0, 0].plot([], [], color=SERIES[1], label="Медиана")
+    axes[0, 0].legend(loc="upper right")
+    fig.suptitle("Распределения показателей, все регионы и годы", x=0.125, ha="left",
+                 fontsize=12, fontweight="bold")
+    fig.subplots_adjust(hspace=0.5, top=0.9)
+    return _save(fig, "distributions.png")
+
+
+def plot_boxplots(panel: pd.DataFrame, year: int) -> Path:
+    """Диаграммы размаха социальных показателей по федеральным округам."""
+    data = panel[panel["year"] == year]
+    order = data.groupby("district")["income_real"].median().sort_values().index
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4.2), sharey=True)
+    for ax, key in zip(axes, TARGETS):
+        groups = [data.loc[data["district"] == d, key].dropna() for d in order]
+        ax.boxplot(groups, vert=False, widths=0.55, patch_artist=True,
+                   boxprops=dict(facecolor=BAND, edgecolor=SERIES[0]),
+                   medianprops=dict(color=SERIES[0], linewidth=2),
+                   whiskerprops=dict(color=SERIES[0]), capprops=dict(color=SERIES[0]),
+                   flierprops=dict(marker="o", markersize=4, markerfacecolor=SERIES[1], markeredgecolor=SURFACE))
+        ax.set_yticks(range(1, len(order) + 1), list(order))
+        ax.tick_params(axis="y", colors=INK_2)
+        ax.set_title(SHORT_TARGETS[key])
+        ax.set_xlabel(UNITS[key])
+        ax.grid(axis="y", visible=False)
+    fig.suptitle(f"Разброс регионов внутри федеральных округов, {year} г.", x=0.125, ha="left",
+                 fontsize=12, fontweight="bold")
+    fig.subplots_adjust(top=0.84)
+    return _save(fig, "boxplots.png")
+
+
+def plot_diagnostics(fits: dict) -> Path:
+    """Панельная модель: факт против прогноза и Q-Q график остатков."""
+    from scipy import stats
+
+    fig, axes = plt.subplots(2, 3, figsize=(13, 8))
+    for col, (target, model) in enumerate(fits.items()):
+        actual, fitted = model.model.endog, model.fittedvalues
+        ax = axes[0, col]
+        ax.scatter(fitted, actual, s=10, color=SERIES[0], alpha=0.45, linewidth=0)
+        low, high = min(actual.min(), fitted.min()), max(actual.max(), fitted.max())
+        ax.plot([low, high], [low, high], color=SERIES[1], linewidth=1.5)
+        ax.set_title(SHORT_TARGETS[target] + ": факт и прогноз", fontsize=10)
+        ax.set_xlabel(f"Прогноз модели, {UNITS[target]}")
+        ax.set_ylabel(f"Факт, {UNITS[target]}")
+
+        ax = axes[1, col]
+        (theory, ordered), (slope, intercept, _) = stats.probplot(model.resid, dist="norm")
+        ax.scatter(theory, ordered, s=10, color=SERIES[0], alpha=0.45, linewidth=0)
+        ax.plot(theory, slope * theory + intercept, color=SERIES[1], linewidth=1.5)
+        ax.set_title("Q-Q график остатков")
+        ax.set_xlabel("Квантили нормального распределения")
+        ax.set_ylabel(f"Остатки, {UNITS[target]}")
+    fig.subplots_adjust(hspace=0.36, wspace=0.3)
+    return _save(fig, "diagnostics.png")
+
+
+def plot_all(panel, russia, coefs, assignments, cluster_year, fits) -> list[Path]:
     return [
+        plot_distributions(panel),
+        plot_boxplots(panel, cluster_year),
+        plot_diagnostics(fits),
         plot_trends(panel, russia),
         plot_nominal_vs_real(russia),
         plot_income_poverty(panel),

@@ -77,3 +77,13 @@ def test_clusters(panel):
     assert len(assignments) == 82 and set(assignments["cluster"]) == {1, 2, 3}
     assert profiles["income_real"].is_monotonic_decreasing   # нумерация по убыванию дохода
     assert np.isfinite(scores["silhouette"]).all()
+
+
+def test_report_tables(panel):
+    from regions.report import describe, within_year_corr
+
+    stats = describe(panel).set_index("indicator")
+    assert stats.loc["life_exp", "n"] > 1900 and 60 < stats.loc["life_exp", "mean"] < 75
+    corr = within_year_corr(panel)
+    assert corr.loc["income_real", "poverty"] < -0.6
+    assert np.allclose(np.diag(corr), 1)

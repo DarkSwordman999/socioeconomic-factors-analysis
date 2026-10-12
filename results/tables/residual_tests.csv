@@ -1,0 +1,4 @@
+target,resid_std,skew,kurtosis,jarque_bera,pvalue
+poverty,2.7398,0.6723,4.713,1925.6328,0.0
+life_exp,0.6707,-0.0027,2.8383,647.1786,0.0
+housing,1.0434,-0.3182,6.9918,3959.6998,0.0
