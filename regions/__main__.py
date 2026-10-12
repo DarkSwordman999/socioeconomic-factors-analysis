@@ -32,6 +32,8 @@ def main() -> None:
         "normality": analysis.normality(panel, LAST_YEAR, DESCRIBED),
         "extremes": {target: analysis.extremes(panel, LAST_YEAR, target) for target in TARGETS},
         "corr_tests": analysis.corr_tests(panel, LAST_YEAR),
+        "partial_corr": analysis.partial_corr(panel, LAST_YEAR),
+        "concordance": analysis.concordance(panel, LAST_YEAR),
         "pairs": pairs, "cs_coefs": cs_coefs, "cs_quality": cs_quality,
         "yearly": analysis.yearly_coefficients(panel),
         "sigma": analysis.sigma_convergence(panel), "beta": beta,
@@ -57,6 +59,7 @@ def main() -> None:
     results |= {
         "coefs": coefs, "summary": summary, "fits": fits,
         "panel_tests": analysis.panel_tests(panel), "elasticity": analysis.poverty_elasticity(panel),
+        "mundlak": analysis.mundlak_test(panel), "structural_break": analysis.structural_break(panel),
         "robustness": analysis.robustness(panel, leaders),
         "assignments": assignments, "profiles": profiles, "scores": scores,
         "inertia": inertia, "loadings": loadings, "explained": explained, "kruskal": kruskal,

@@ -54,10 +54,62 @@ def corr_tests(panel: pd.DataFrame, year: int) -> pd.DataFrame:
             x = np.log(pair[factor]) if factor in FACTORS else pair[factor]
             r, p = stats.pearsonr(x, pair[target])
             rho, p_rho = stats.spearmanr(pair[factor], pair[target])
+            tau, p_tau = stats.kendalltau(pair[factor], pair[target])
             n = len(pair)
+            half = stats.norm.ppf(0.975) / np.sqrt(n - 3)        # z-преобразование Фишера
             rows.append({"target": target, "factor": factor, "n": n, "pearson": r,
-                         "t": r * np.sqrt((n - 2) / (1 - r ** 2)), "p": p, "spearman": rho, "p_spearman": p_rho})
+                         "ci_low": np.tanh(np.arctanh(r) - half), "ci_high": np.tanh(np.arctanh(r) + half),
+                         "t": r * np.sqrt((n - 2) / (1 - r ** 2)), "p": p, "spearman": rho, "p_spearman": p_rho,
+                         "kendall": tau, "p_kendall": p_tau})
     return pd.DataFrame(rows)
+
+
+def partial_corr(panel: pd.DataFrame, year: int) -> pd.DataFrame:
+    """Частные корреляции фактора с показателем при фиксированных двух других факторах."""
+    data = panel[panel["year"] == year]
+    rows = []
+    for target in TARGETS:
+        sample = data[[target] + FACTORS].dropna()
+        logs = np.log(sample[FACTORS])
+        n = len(sample)
+        for factor in FACTORS:
+            others = sm.add_constant(logs.drop(columns=factor))
+            x_res = sm.OLS(logs[factor], others).fit().resid
+            y_res = sm.OLS(sample[target], others).fit().resid
+            r = np.corrcoef(x_res, y_res)[0, 1]
+            df = n - 2 - (len(FACTORS) - 1)
+            t = r * np.sqrt(df / (1 - r ** 2))
+            rows.append({"target": target, "factor": factor, "n": n,
+                         "pairwise": np.corrcoef(logs[factor], sample[target])[0, 1],
+                         "partial": r, "t": t, "df": df, "p": 2 * stats.t.sf(abs(t), df)})
+    return pd.DataFrame(rows)
+
+
+def kendall_w(frame: pd.DataFrame) -> dict:
+    """Коэффициент конкордации Кендалла для столбцов frame (с поправкой на связанные ранги)."""
+    ranks = frame.dropna().rank()
+    n, m = ranks.shape
+    totals = ranks.sum(axis=1)
+    s_stat = ((totals - totals.mean()) ** 2).sum()
+    ties = sum((counts ** 3 - counts).sum() for counts in (ranks[c].value_counts() for c in ranks))
+    w = 12 * s_stat / (m ** 2 * (n ** 3 - n) - m * ties)
+    chi2 = m * (n - 1) * w
+    return {"n": n, "m": m, "w": w, "chi2": chi2, "df": n - 1, "p": stats.chi2.sf(chi2, n - 1),
+            "mean_spearman": (m * w - 1) / (m - 1)}
+
+
+def concordance(panel: pd.DataFrame, year: int) -> pd.DataFrame:
+    """Согласованность ранжирований регионов по группам показателей.
+
+    Бедность берётся с обратным знаком, чтобы во всех столбцах большее значение означало лучшее.
+    """
+    data = panel[panel["year"] == year].assign(poverty_inv=lambda d: -d["poverty"])
+    groups = {
+        "Экономические: ВРП, инвестиции, доходы": FACTORS,
+        "Социальные: бедность, продолжительность жизни, жильё": ["poverty_inv", "life_exp", "housing"],
+        "Доходы и три социальных показателя": ["income_real", "poverty_inv", "life_exp", "housing"],
+    }
+    return pd.DataFrame([{"group": name} | kendall_w(data[cols]) for name, cols in groups.items()])
 
 
 # --- парные регрессии --------------------------------------------------------
@@ -205,6 +257,48 @@ def panel_tests(panel: pd.DataFrame) -> pd.DataFrame:
             "dw_panel": (diff ** 2).sum() / (resid["e"] ** 2).sum(),
             "rho": np.corrcoef(resid["e"][step == 1], lagged)[0, 1],
         })
+    return pd.DataFrame(rows)
+
+
+def mundlak_test(panel: pd.DataFrame) -> pd.DataFrame:
+    """Тест Мундлака: коррелируют ли особенности регионов с факторами (аналог теста Хаусмана).
+
+    В модель без эффектов региона добавляются средние факторов по региону; их совместная
+    значимость означает, что модель со случайными эффектами несостоятельна.
+    """
+    terms = ["ln_gdp", "ln_invest", "ln_income"]
+    rows = []
+    for target in TARGETS:
+        data = _sample(panel, target, SPECS["fe"])
+        means = data.groupby("region")[terms].transform("mean").add_prefix("m_")
+        data = pd.concat([data, means], axis=1)
+        groups = data["region"].astype("category").cat.codes
+        model = smf.ols(f"{target} ~ " + " + ".join(terms + list(means.columns)) + " + C(year)", data=data).fit(
+            cov_type="cluster", cov_kwds={"groups": groups})
+        test = model.wald_test(", ".join(f"{c} = 0" for c in means.columns), use_f=True, scalar=True)
+        rows.append({"target": target, "f": float(test.statistic), "df1": int(test.df_num),
+                     "df2": int(test.df_denom), "p": float(test.pvalue)})
+    return pd.DataFrame(rows)
+
+
+def structural_break(panel: pd.DataFrame, break_year: int = 2012) -> pd.DataFrame:
+    """Тест на структурный сдвиг: различаются ли коэффициенты при факторах до и после break_year."""
+    terms = ["ln_gdp", "ln_invest", "ln_income"]
+    rows = []
+    for target in TARGETS:
+        data = _sample(panel, target, SPECS["fe_controls"])
+        late = (data["year"] >= break_year).astype(float)
+        for term in terms:
+            data[f"{term}_late"] = data[term] * late
+        groups = data["region"].astype("category").cat.codes
+        shifted = [f"{term}_late" for term in terms]
+        model = smf.ols(f"{target} ~ " + " + ".join(terms + shifted + CONTROLS) + " + C(region) + C(year)",
+                        data=data).fit(cov_type="cluster", cov_kwds={"groups": groups})
+        test = model.wald_test(", ".join(f"{c} = 0" for c in shifted), use_f=True, scalar=True)
+        rows.append({"target": target, "f": float(test.statistic), "df1": int(test.df_num),
+                     "df2": int(test.df_denom), "p": float(test.pvalue),
+                     "income_early": model.params["ln_income"],
+                     "income_shift": model.params["ln_income_late"], "shift_p": model.pvalues["ln_income_late"]})
     return pd.DataFrame(rows)
 
 

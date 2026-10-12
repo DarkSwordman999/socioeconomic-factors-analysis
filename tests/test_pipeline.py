@@ -117,3 +117,22 @@ def test_robustness_and_elasticity(panel):
     leaders = cluster_regions(panel, LAST_YEAR)[0].query("cluster == 1")["region"].tolist()
     poverty = analysis.robustness(panel, leaders).query("target == 'poverty'")
     assert len(poverty) == 8 and (poverty["ci_high"] < 0).all()
+
+
+def test_rank_correlations_and_concordance(panel):
+    import pandas as pd
+
+    from regions import analysis
+
+    tests = analysis.corr_tests(panel, LAST_YEAR).set_index(["target", "factor"])
+    row = tests.loc[("poverty", "income_real")]
+    assert row["ci_low"] < row["pearson"] < row["ci_high"] < 0
+    assert row["kendall"] < 0 and abs(row["kendall"]) < abs(row["spearman"])
+
+    same = pd.DataFrame({"a": range(10), "b": range(10), "c": range(10)})
+    assert analysis.kendall_w(same)["w"] == pytest.approx(1)
+    conc = analysis.concordance(panel, LAST_YEAR)
+    assert conc.iloc[0]["w"] > conc.iloc[1]["w"] and conc["w"].between(0, 1).all()
+
+    partial = analysis.partial_corr(panel, LAST_YEAR).set_index(["target", "factor"])
+    assert abs(partial.loc[("poverty", "gdp_real"), "partial"]) < abs(partial.loc[("poverty", "gdp_real"), "pairwise"])

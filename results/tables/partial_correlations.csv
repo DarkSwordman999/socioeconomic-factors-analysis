@@ -1,0 +1,10 @@
+target,factor,n,pairwise,partial,t,df,p
+poverty,gdp_real,82,-0.62076,-0.13201,-1.17613,78,0.24312
+poverty,invest_real,82,-0.42485,0.2957,2.73381,78,0.00774
+poverty,income_real,82,-0.75916,-0.60142,-6.6483,78,0.0
+life_exp,gdp_real,82,-0.23721,-0.16002,-1.4317,78,0.15622
+life_exp,invest_real,82,-0.27263,-0.18717,-1.68275,78,0.09642
+life_exp,income_real,82,-0.10232,0.20773,1.87556,78,0.06446
+housing,gdp_real,82,0.23266,0.3355,3.14533,78,0.00235
+housing,invest_real,82,-0.09343,-0.47204,-4.72891,78,1e-05
+housing,income_real,82,0.21457,0.15729,1.40664,78,0.16351

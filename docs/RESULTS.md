@@ -48,7 +48,9 @@
 
 | Файл | Строка — это | Столбцы | Функция |
 |---|---|---|---|
-| `correlation_tests.csv` | пара «показатель — фактор», срез последнего года | `pearson`, `t`, `p`, `spearman`, `p_spearman` | `analysis.corr_tests` |
+| `correlation_tests.csv` | пара «показатель — фактор», срез последнего года | `pearson` и интервал `ci_low`, `ci_high`; `t`, `p`; `spearman`, `p_spearman`; `kendall`, `p_kendall` | `analysis.corr_tests` |
+| `partial_correlations.csv` | показатель × фактор | парная и частная корреляция, `t`, `df`, `p` | `analysis.partial_corr` |
+| `concordance.csv` | группа показателей | коэффициент конкордации `w`, `chi2`, `df`, `p`, средний ρ | `analysis.concordance` |
 | `correlations.csv` | матрица 12×12 | корреляции отклонений от среднего за год | `report.within_year_corr` |
 
 ### Регрессии на срезе
@@ -69,6 +71,8 @@
 | `effects_10pct.csv` | показатель × модель × фактор | эффект роста фактора на 10 % и его интервал | `models.effect_of_10pct` |
 | `vif.csv` | фактор | коэффициент вздутия дисперсии по всей панели | `models.vif_table` |
 | `panel_tests.csv` | показатель | F-тест эффектов `f_fe`, степени свободы, `bp_p`, автокорреляция остатков `rho` | `analysis.panel_tests` |
+| `mundlak_test.csv` | показатель | F-статистика, степени свободы, `p` | `analysis.mundlak_test` |
+| `structural_break.csv` | показатель | F-тест сдвига, коэффициент при доходах до 2012 года и его изменение | `analysis.structural_break` |
 | `poverty_elasticity.csv` | период | эластичность бедности по доходам, ошибка, интервал | `analysis.poverty_elasticity` |
 | `robustness.csv` | вариант × показатель | коэффициент при ln доходов, ошибка, `p`, число наблюдений и регионов | `analysis.robustness` |
 | `residual_tests.csv` | показатель | стандартное отклонение, асимметрия и эксцесс остатков, тест Харке — Бера | `report.residual_tests` |
