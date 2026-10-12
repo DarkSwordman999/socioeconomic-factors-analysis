@@ -87,3 +87,33 @@ def test_report_tables(panel):
     corr = within_year_corr(panel)
     assert corr.loc["income_real", "poverty"] < -0.6
     assert np.allclose(np.diag(corr), 1)
+
+
+def test_pair_models(panel):
+    from regions import analysis
+
+    pairs, curves = analysis.pair_models(panel, LAST_YEAR)
+    assert len(pairs) == 45 and pairs.groupby(["target", "factor"])["best"].sum().eq(1).all()
+    best = pairs[pairs["best"]].set_index(["target", "factor"]).loc[("poverty", "income_real")]
+    assert best["form"] == "power" and best["elasticity"] < -1
+    assert curves[("poverty", "income_real", "power")](50.0) > 0
+
+
+def test_convergence(panel):
+    from regions import analysis
+
+    table, points = analysis.beta_convergence(panel, FIRST_YEAR, LAST_YEAR)
+    income = table.set_index("indicator").loc["income_real"]
+    assert income["b"] < 0 and income["p"] < 0.01 and income["half_life"] > 0
+    sigma = analysis.sigma_convergence(panel).set_index("year")
+    assert sigma.loc[2012, "income_real"] < sigma.loc[FIRST_YEAR, "income_real"]
+
+
+def test_robustness_and_elasticity(panel):
+    from regions import analysis
+
+    elasticity = analysis.poverty_elasticity(panel)
+    assert (elasticity["coef"] < 0).all() and (elasticity["p"] < 0.01).all()
+    leaders = cluster_regions(panel, LAST_YEAR)[0].query("cluster == 1")["region"].tolist()
+    poverty = analysis.robustness(panel, leaders).query("target == 'poverty'")
+    assert len(poverty) == 8 and (poverty["ci_high"] < 0).all()

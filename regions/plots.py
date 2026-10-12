@@ -173,15 +173,16 @@ def plot_convergence(panel: pd.DataFrame) -> Path:
     """Неравенство регионов по доходам: коэффициент вариации по годам."""
     fig, ax = plt.subplots(figsize=(7, 4))
     for col, label, color in [("income", "Доходы в текущих ценах", SERIES[1]),
-                              ("income_real", "Доходы с учётом цен региона", SERIES[0])]:
+                              ("income_real", "Доходы в реальных ценах", SERIES[0]),
+                              ("gdp_real", "ВРП на душу в реальных ценах", SERIES[2])]:
         by_year = panel.groupby("year")[col]
         variation = by_year.std() / by_year.mean() * 100
         ax.plot(variation.index, variation, color=color, label=label)
     ax.set_ylim(0, None)
     ax.set_ylabel("Коэффициент вариации, %")
-    ax.set_title("Разрыв в доходах между регионами: спад до начала 2010-х, затем рост")
+    ax.set_title("Разрыв между регионами: доходы сблизились, ВРП — нет")
     ax.grid(axis="x", visible=False)
-    ax.legend(loc="upper right")
+    ax.legend(loc="lower left")
     return _save(fig, "convergence.png")
 
 
@@ -266,12 +267,12 @@ def plot_boxplots(panel: pd.DataFrame, year: int) -> Path:
 
 
 def plot_diagnostics(fits: dict) -> Path:
-    """Панельная модель: факт против прогноза и Q-Q график остатков."""
+    """Панельная модель: факт и прогноз, остатки против прогноза, Q-Q график остатков."""
     from scipy import stats
 
-    fig, axes = plt.subplots(2, 3, figsize=(13, 8))
+    fig, axes = plt.subplots(3, 3, figsize=(13, 11.5))
     for col, (target, model) in enumerate(fits.items()):
-        actual, fitted = model.model.endog, model.fittedvalues
+        actual, fitted, resid = model.model.endog, model.fittedvalues, model.resid
         ax = axes[0, col]
         ax.scatter(fitted, actual, s=10, color=SERIES[0], alpha=0.45, linewidth=0)
         low, high = min(actual.min(), fitted.min()), max(actual.max(), fitted.max())
@@ -281,26 +282,168 @@ def plot_diagnostics(fits: dict) -> Path:
         ax.set_ylabel(f"Факт, {UNITS[target]}")
 
         ax = axes[1, col]
-        (theory, ordered), (slope, intercept, _) = stats.probplot(model.resid, dist="norm")
+        ax.scatter(fitted, resid, s=10, color=SERIES[0], alpha=0.45, linewidth=0)
+        ax.axhline(0, color=SERIES[1], linewidth=1.5)
+        ax.set_title("Остатки против прогноза", fontsize=10)
+        ax.set_xlabel(f"Прогноз модели, {UNITS[target]}")
+        ax.set_ylabel(f"Остатки, {UNITS[target]}")
+
+        ax = axes[2, col]
+        (theory, ordered), (slope, intercept, _) = stats.probplot(resid, dist="norm")
         ax.scatter(theory, ordered, s=10, color=SERIES[0], alpha=0.45, linewidth=0)
         ax.plot(theory, slope * theory + intercept, color=SERIES[1], linewidth=1.5)
-        ax.set_title("Q-Q график остатков")
+        ax.set_title("Q-Q график остатков", fontsize=10)
         ax.set_xlabel("Квантили нормального распределения")
         ax.set_ylabel(f"Остатки, {UNITS[target]}")
-    fig.subplots_adjust(hspace=0.36, wspace=0.3)
+    fig.subplots_adjust(hspace=0.4, wspace=0.3)
     return _save(fig, "diagnostics.png")
 
 
-def plot_all(panel, russia, coefs, assignments, cluster_year, fits) -> list[Path]:
+FORM_NAMES = {"linear": "линейная", "log": "логарифмическая", "power": "степенная",
+              "exp": "экспоненциальная", "quadratic": "квадратичная"}
+FACTOR_SHORT = {"gdp_real": "ВРП на душу", "invest_real": "Инвестиции на душу", "income_real": "Доходы на душу"}
+
+
+def plot_pair_regressions(panel: pd.DataFrame, year: int, pairs: pd.DataFrame, curves: dict) -> Path:
+    """Поля корреляции 3×3 с линиями парной регрессии: линейной и лучшей по скорр. R²."""
+    data = panel[panel["year"] == year]
+    factors = list(FACTOR_SHORT)
+    fig, axes = plt.subplots(3, 3, figsize=(13, 11))
+    for i, target in enumerate(TARGETS):
+        for j, factor in enumerate(factors):
+            ax = axes[i, j]
+            pair = data[[factor, target]].dropna()
+            x = pair[factor] / 1000
+            ax.scatter(x, pair[target], s=22, color=SERIES[0], alpha=0.7, edgecolor=SURFACE, linewidth=0.6)
+            grid = np.geomspace(x.min(), x.max(), 200)
+            rows = pairs[(pairs["target"] == target) & (pairs["factor"] == factor)].set_index("form")
+            best = rows.index[rows["best"]][0]
+            ax.plot(grid, curves[(target, factor, "linear")](grid), color=MUTED, linewidth=1.5,
+                    linestyle="--", label="Линейная")
+            ax.plot(grid, curves[(target, factor, best)](grid), color=SERIES[1], linewidth=2,
+                    label="Лучшая форма")
+            ax.set_xscale("log")
+            ticks = [t for t in (20, 30, 40, 50, 70, 100, 200, 500, 1000, 2000, 5000) if x.min() <= t <= x.max()]
+            ax.set_xticks(ticks, labels=[str(t) for t in ticks])
+            ax.minorticks_off()
+            ax.set_ylim(pair[target].min() - 0.08 * np.ptp(pair[target]), pair[target].max() + 0.22 * np.ptp(pair[target]))
+            ax.text(0.03, 0.96, f"{FORM_NAMES[best]}: R² = {rows.loc[best, 'r2']:.2f}\nлинейная: R² = {rows.loc['linear', 'r2']:.2f}",
+                    transform=ax.transAxes, va="top", fontsize=8.5, color=INK_2)
+            if i == 0:
+                ax.set_title(FACTOR_SHORT[factor])
+            if i == 2:
+                ax.set_xlabel("тыс. руб. в ценах 2023 г. (лог. шкала)")
+            if j == 0:
+                ax.set_ylabel(f"{SHORT_TARGETS[target]}, {UNITS[target]}")
+    axes[0, 2].legend(loc="upper right", fontsize=8.5)
+    fig.suptitle(f"Парные регрессии: социальный показатель от экономического фактора, {year} г.",
+                 x=0.125, ha="left", fontsize=12, fontweight="bold")
+    fig.subplots_adjust(top=0.93, hspace=0.22, wspace=0.24)
+    return _save(fig, "pair_regressions.png")
+
+
+def plot_partial(partials: dict, coefs: pd.DataFrame) -> Path:
+    """Частные графики регрессии: связь с доходами после вычета остальных регрессоров и эффектов."""
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
+    for ax, target in zip(axes, TARGETS):
+        points = partials[target]
+        row = coefs[(coefs["target"] == target) & (coefs["spec"] == "fe_controls") & (coefs["term"] == "ln_income")].iloc[0]
+        ax.scatter(points["x"], points["y"], s=9, color=SERIES[0], alpha=0.4, linewidth=0)
+        grid = np.array([points["x"].min(), points["x"].max()])
+        ax.plot(grid, row["coef"] * grid, color=SERIES[1], linewidth=2)
+        p_text = "p < 0,001" if row["pvalue"] < 0.001 else f"p = {row['pvalue']:.2f}".replace(".", ",")
+        ax.text(0.03, 0.96, f"β = {row['coef']:.2f}".replace(".", ",").replace("-", "−") + f", {p_text}", transform=ax.transAxes,
+                va="top", fontsize=9, color=INK_2)
+        ax.set_title(SHORT_TARGETS[target])
+        ax.set_xlabel("ln доходов, очищенный от прочих факторов")
+        ax.set_ylabel(f"Очищенный показатель, {UNITS[target]}")
+    fig.suptitle("Частная регрессия на доходы в панельной модели", x=0.125, ha="left",
+                 fontsize=12, fontweight="bold")
+    fig.subplots_adjust(top=0.84, wspace=0.28)
+    return _save(fig, "partial_regression.png")
+
+
+def plot_yearly(yearly: pd.DataFrame) -> Path:
+    """Коэффициент при ln доходов в регрессиях по отдельным годам."""
+    fig, axes = plt.subplots(1, 3, figsize=(13, 3.9))
+    for ax, target in zip(axes, TARGETS):
+        rows = yearly[yearly["target"] == target]
+        ax.fill_between(rows["year"], rows["ci_low"], rows["ci_high"], color=BAND, linewidth=0,
+                        label="95 %-й интервал")
+        ax.plot(rows["year"], rows["coef"], color=SERIES[0], label="Коэффициент")
+        ax.axhline(0, color=AXIS, linewidth=1)
+        ax.set_title(SHORT_TARGETS[target])
+        ax.set_ylabel(f"{UNITS[target]} на единицу ln доходов")
+        ax.grid(axis="x", visible=False)
+    axes[0].legend(loc="lower right")
+    fig.suptitle("Коэффициент при доходах в ежегодных регрессиях по регионам", x=0.125, ha="left",
+                 fontsize=12, fontweight="bold")
+    fig.subplots_adjust(top=0.82, wspace=0.3)
+    return _save(fig, "yearly_coefficients.png")
+
+
+def plot_beta(points: pd.DataFrame, table: pd.DataFrame, first: int, last: int) -> Path:
+    """Бета-сходимость: темп роста против исходного уровня."""
+    titles = {"income_real": "Реальные доходы", "gdp_real": "Реальный ВРП"}
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.6))
+    for ax, key in zip(axes, titles):
+        data = points[points["indicator"] == key]
+        row = table[table["indicator"] == key].iloc[0]
+        x = data["start"] / 1000
+        ax.scatter(x, data["growth_pct"], s=30, color=SERIES[0], edgecolor=SURFACE, linewidth=0.8)
+        grid = np.geomspace(x.min(), x.max(), 100)
+        ax.plot(grid, (row["a"] + row["b"] * np.log(grid * 1000)) * 100, color=SERIES[1], linewidth=2)
+        ax.set_xscale("log")
+        ticks = [t for t in (5, 10, 20, 30, 50, 100, 200, 500, 1000, 2000) if x.min() <= t <= x.max()]
+        ax.set_xticks(ticks, labels=[str(t) for t in ticks])
+        ax.minorticks_off()
+        p_text = "p < 0,001" if row["p"] < 0.001 else f"p = {row['p']:.2f}".replace(".", ",")
+        ax.text(1, 1.02, f"b = {row['b']:.4f}, {p_text}, R² = {row['r2']:.2f}".replace(".", ",").replace("-", "−"),
+                transform=ax.transAxes, va="bottom", ha="right", fontsize=9, color=INK_2)
+        ax.set_title(titles[key])
+        ax.set_xlabel(f"Уровень в {first} г., тыс. руб. в ценах 2023 г. (лог. шкала)")
+        ax.set_ylabel(f"Среднегодовой рост за {first}–{last} гг., %")
+        extreme = data.assign(region=data["region"])
+        _label_points(ax, pd.concat([extreme.nlargest(3, "growth_pct"), extreme.nlargest(2, "start")]),
+                      "start", "growth_pct", x_scale=1 / 1000)
+    fig.suptitle("Бета-сходимость: росли ли бедные регионы быстрее богатых", x=0.125, ha="left",
+                 fontsize=12, fontweight="bold")
+    fig.subplots_adjust(top=0.85, wspace=0.24)
+    return _save(fig, "beta_convergence.png")
+
+
+def plot_cluster_selection(inertia: pd.DataFrame, scores: pd.DataFrame, chosen: int) -> Path:
+    """Выбор числа кластеров: метод локтя и коэффициент силуэта."""
+    fig, axes = plt.subplots(1, 2, figsize=(11, 3.8))
+    for ax, frame, col, title in [(axes[0], inertia, "inertia", "Внутрикластерная сумма квадратов"),
+                                  (axes[1], scores, "silhouette", "Средний коэффициент силуэта")]:
+        ax.plot(frame["k"], frame[col], color=SERIES[0], marker="o", markersize=6,
+                markeredgecolor=SURFACE, markeredgewidth=1)
+        picked = frame[frame["k"] == chosen]
+        ax.scatter(picked["k"], picked[col], s=90, color=SERIES[1], edgecolor=SURFACE, linewidth=1.5, zorder=3)
+        ax.set_title(title)
+        ax.set_xlabel("Число кластеров k")
+        ax.grid(axis="x", visible=False)
+    fig.subplots_adjust(wspace=0.24)
+    return _save(fig, "cluster_selection.png")
+
+
+def plot_all(panel, russia, coefs, assignments, cluster_year, fits, extra: dict) -> list[Path]:
+    first = int(panel["year"].min())
     return [
         plot_distributions(panel),
         plot_boxplots(panel, cluster_year),
-        plot_diagnostics(fits),
         plot_trends(panel, russia),
         plot_nominal_vs_real(russia),
-        plot_income_poverty(panel),
-        plot_effects(coefs),
-        plot_clusters(assignments, cluster_year),
         plot_convergence(panel),
+        plot_beta(extra["beta_points"], extra["beta"], first, cluster_year),
         plot_correlations(panel),
+        plot_income_poverty(panel),
+        plot_pair_regressions(panel, cluster_year, extra["pairs"], extra["curves"]),
+        plot_yearly(extra["yearly"]),
+        plot_effects(coefs),
+        plot_partial(extra["partials"], coefs),
+        plot_diagnostics(fits),
+        plot_cluster_selection(extra["inertia"], extra["scores"], assignments["cluster"].nunique()),
+        plot_clusters(assignments, cluster_year),
     ]
